@@ -97,6 +97,20 @@ def draw(harmonics: list[Harmonic], num_step: int) -> None:
             turtle.goto(PX * s.x, PX * s.y)
     time.sleep(1)
 
+TRIG_MAX_ANGLE = 0x10000
+
+def as_c(harmonics: list[Harmonic]) -> str:
+    result = []
+    result.append("static Harmonic harmonics[%d] = {" % len(harmonics))
+    for h in harmonics:
+        freq = int(h.freq)
+        amp = int(h.amp * 1000)
+        phase = int(h.phase * TRIG_MAX_ANGLE / (2 * math.pi))
+        result.append("    (Harmonic){.freq=%d, .amp=%d, .phase=%d}," % (freq, amp, phase))
+    result.append("};")
+    return "\n".join(result)
+
+
 
 def main() -> None:
     # fmt: off
@@ -107,10 +121,11 @@ def main() -> None:
     four = polygon([207.25,1.6974291206017824,0,260.8948582412037,195,260.8948582412037,194,498.8948582412037,278,499.8948582412037,272,257.8948582412037,368,258.8948582412037,366,203.89485824120368,121.25,206.69742912060178,288.25,0])
     eight = polygon([179,26,0,164,185,283,23,429,204,532,219,503,102,424,224,306,318,387,179,528,220,543,380,377,92,161,218,60,286,110,209,246,237,269,384,106,206,0])
     # fmt: on
-    digits = [zero, one, two, three, four, eight]
+    digits = [three]
     for digit in digits:
         harmonics = compress(to_harmonics(digit))
-        draw(harmonics, 100)
+        print(as_c(harmonics))
+        #draw(harmonics, 100)
 
 
 if __name__ == "__main__":
