@@ -3,11 +3,113 @@ from dataclasses import dataclass
 import time
 import turtle
 
+from tkinter import (
+    Canvas,
+    Tk,
+    N,
+    W,
+    E,
+    S,
+)
 
 @dataclass
-class Point:
-    x: float
-    y: float
+class Coord:  # in pixel space
+    x: int    # positive is right
+    y: int    # positive is down
+
+def dist(c1: Coord, c2: Coord) -> float:
+    x = c1.x - c2.x
+    y = c1.y - c2.y
+    return math.sqrt(x**2 + y**2)
+
+@dataclass
+class Point:  # in arbitrary size float 0.0-1.0 space
+    x: float  # positive is right
+    y: float  # positive is down
+
+class Sketchpad(Canvas):
+    def __init__(self, parent, **kwargs) -> None:
+        super().__init__(parent, **kwargs)
+        self.bind("<Button-1>", self._add)
+        self.bind("<Button-2>", self._del)
+        self.bind("<Button-3>", self._start_move)
+        self.bind("<ButtonRelease-3>", self._end_move)
+        self._coords: dict[int, Coord] = {}  # ident to position
+        self._order: dict[int, float] = {}  # ident to order
+        self._text: dict[int, int] = {}  # circle id to text id
+        self._move_started: Coord | None = None
+        self.radius = 10
+
+    def _add(self, event) -> None:
+        print(f"_add({event.x}, {event.y})")
+        c = Coord(event.x, event.y)
+        x0 = c.x - self.radius
+        x1 = c.x + self.radius
+        y0 = c.y - self.radius
+        y1 = c.y + self.radius
+        ident = self.create_oval(x0, y0, x1, y1)
+        position = max(self._order.values(), default=0.0) + 1.0  # TODO: find two nearest points and average them. Or append to the end. this only appends to the end right now.
+        self._order[ident] = position
+        text_id = self.create_text(c.x, c.y, text=str(position))
+        self._coords[ident] = c
+        self._text[ident] = text_id
+
+    def _find(self, query: Coord) -> int | None:
+        mind = math.inf
+        mini = None
+        for ident, c in self._coords.items():
+            d = dist(c, query)
+            if d < mind:
+                mind = d
+                mini = ident
+        if mind > self.radius * 1.2:
+            return None
+        return mini
+
+    def _del(self, event) -> bool:
+        print(f"_del({event.x}, {event.y})")
+        clicked = Coord(event.x, event.y)
+        ident = self._find(clicked)
+        if ident is None:
+            return False
+        self.delete(ident)
+        self.delete(self._text[ident])
+        del self._coords[ident]
+        del self._text[ident]
+        del self._order[ident]
+        return True
+
+    def _start_move(self, event) -> None:
+        if self._del(event):
+            self._move_started = Coord(event.x, event.y)
+
+    def _end_move(self, event) -> None:
+        if self._move_started is None:
+            return
+        self._add(event)
+        self._move_started = None
+
+    def to_points(self) -> list[Point]:
+        items = list(self._coords.items())
+        items.sort(key=lambda k: self._order[k[0]])
+        coords = [i[1] for i in items]
+        xs = [c.x for c in coords]
+        ys = [c.y for c in coords]
+        minx = min(xs)
+        maxx = max(xs)
+        miny = min(ys)
+        maxy = max(ys)
+        rx = maxx - minx
+        ry = maxy - miny
+        r = max(rx, ry)
+        return [
+            Point(
+                (c.x - minx) / r,
+                (c.y - miny) / r,
+            )
+            for c in coords
+        ]
+
 
 
 @dataclass
@@ -18,24 +120,6 @@ class Harmonic:
 
 
 FULL_TURN = 2 * math.pi
-
-
-def polygon(args: list[float]) -> list[Point]:
-    # https://schervenkov.github.io/polygon-editor/
-    assert len(args) % 2 == 0
-    xs = []
-    ys = []
-    i = 0
-    while i < len(args):
-        xs.append(args[i])
-        ys.append(args[i + 1])
-        i += 2
-    maxx = max(xs)
-    maxy = max(ys)
-    result = []
-    for x, y in zip(xs, ys, strict=True):
-        result.append(Point(x / maxx, -y / maxy))
-    return result
 
 
 def compress(harmonics: list[Harmonic]) -> list[Harmonic]:
@@ -113,19 +197,19 @@ def as_c(harmonics: list[Harmonic]) -> str:
 
 
 def main() -> None:
-    # fmt: off
-    zero = polygon([136,0,0,126,118,263,279,138,169,32,136,62,214,139,126,205,59,130,170,31])
-    one = polygon([47,32,0,62,3,85,13,101,59,73,59,225,58,358,120,356,116,232,115,75,114,0,81,15])
-    two = polygon([62.25,25.4765625,101,5.2265625,205.1875,0,235.1875,52.36328125,210,129.2265625,138,190.2265625,73.1875,271.36328125,58.1875,319.36328125,154.1875,313.36328125,242.1875,330.4765625,245.875,366.4765625,162,379.2265625,54,374.2265625,2,355.2265625,4,290.2265625,56,205.2265625,110,140.2265625,176,84.2265625,172.1875,51.4765625,104,61.2265625,55,91.2265625,25,110.2265625,4,104.2265625,0,68.2265625,28,45.2265625])
-    three = polygon([0,103,101,0,202,104,121,190,206,274,109,384,2,285,28,257,102,328,152,277,73,192,156,105,102,51,22,130])
-    four = polygon([207.25,1.6974291206017824,0,260.8948582412037,195,260.8948582412037,194,498.8948582412037,278,499.8948582412037,272,257.8948582412037,368,258.8948582412037,366,203.89485824120368,121.25,206.69742912060178,288.25,0])
-    eight = polygon([179,26,0,164,185,283,23,429,204,532,219,503,102,424,224,306,318,387,179,528,220,543,380,377,92,161,218,60,286,110,209,246,237,269,384,106,206,0])
-    # fmt: on
-    digits = [three]
-    for digit in digits:
-        harmonics = compress(to_harmonics(digit))
-        print(as_c(harmonics))
-        #draw(harmonics, 100)
+    root = Tk()
+    root.columnconfigure(0, weight=1)
+    root.rowconfigure(0, weight=1)
+    sketch = Sketchpad(root)
+    sketch.grid(column=0, row=0, sticky=(N, W, E, S))
+    root.mainloop()
+
+    points = sketch.to_points()
+    harmonics = compress(to_harmonics(points))
+    print(as_c(harmonics))
+    draw(harmonics, 100)
+
+
 
 
 if __name__ == "__main__":
