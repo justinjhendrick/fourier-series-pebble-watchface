@@ -1,6 +1,6 @@
 {
   "name": "fourier-series",
-  "author": "MakeAwesomeHappen",
+  "author": "justinjhendrick",
   "version": "1.0.0",
   "keywords": ["pebble-app"],
   "private": true,
@@ -11,16 +11,10 @@
     "sdkVersion": "3",
     "enableMultiJS": true,
     "targetPlatforms": [
-      "aplite",
-      "basalt",
-      "chalk",
-      "diorite",
-      "emery",
-      "flint",
-      "gabbro"
+      "emery"
     ],
     "watchapp": {
-      "watchface": false
+      "watchface": true
     },
     "messageKeys": [
       "dummy"

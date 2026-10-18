@@ -1,8 +1,8 @@
 import math
-from dataclasses import dataclass
 import time
-import turtle
-
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path
 from tkinter import (
     Canvas,
     Tk,
@@ -10,6 +10,7 @@ from tkinter import (
     W,
     E,
     S,
+    Event,
 )
 
 @dataclass
@@ -34,25 +35,51 @@ class Sketchpad(Canvas):
         self.bind("<Button-2>", self._del)
         self.bind("<Button-3>", self._start_move)
         self.bind("<ButtonRelease-3>", self._end_move)
+        self.bind("<Control-Button-1>", self._start_add_after)
+        self.bind("<Control-ButtonRelease-1>", self._end_add_after)
         self._coords: dict[int, Coord] = {}  # ident to position
         self._order: dict[int, float] = {}  # ident to order
         self._text: dict[int, int] = {}  # circle id to text id
-        self._move_started: Coord | None = None
-        self.radius = 10
+        self._move_position: float | None = None
+        self._after_position: float | None = None
+        self.radius = 15
 
-    def _add(self, event) -> None:
-        print(f"_add({event.x}, {event.y})")
+    def _add(self, event: Event, position: float | None = None) -> None:
         c = Coord(event.x, event.y)
         x0 = c.x - self.radius
         x1 = c.x + self.radius
         y0 = c.y - self.radius
         y1 = c.y + self.radius
         ident = self.create_oval(x0, y0, x1, y1)
-        position = max(self._order.values(), default=0.0) + 1.0  # TODO: find two nearest points and average them. Or append to the end. this only appends to the end right now.
+        if position is None:
+            position = max(self._order.values(), default=0.0) + 1.0
         self._order[ident] = position
-        text_id = self.create_text(c.x, c.y, text=str(position))
+        text_id = self.create_text(c.x, c.y, text=f"{position:.2f}")
         self._coords[ident] = c
         self._text[ident] = text_id
+
+    def _next_after(self, position: float) -> float:
+        order = sorted(self._order.values())
+        for p in order:
+            if p > position:
+                return (p + position) / 2.0
+        if len(order) == 0:
+            return 1.0
+        return order[-1] + 1.0
+
+    def _start_add_after(self, event: Event) -> None:
+        clicked = Coord(event.x, event.y)
+        ident = self._find(clicked)
+        if ident is None:
+            return
+        orig_position = self._order[ident]
+        self._after_position = self._next_after(orig_position)
+
+    def _end_add_after(self, event: Event) -> None:
+        if self._after_position is None:
+            return
+        self._add(event, self._after_position)
+        self._after_position = None
 
     def _find(self, query: Coord) -> int | None:
         mind = math.inf
@@ -66,28 +93,27 @@ class Sketchpad(Canvas):
             return None
         return mini
 
-    def _del(self, event) -> bool:
-        print(f"_del({event.x}, {event.y})")
+    def _del(self, event: Event) -> None | float:
         clicked = Coord(event.x, event.y)
         ident = self._find(clicked)
         if ident is None:
-            return False
+            return None
         self.delete(ident)
         self.delete(self._text[ident])
         del self._coords[ident]
         del self._text[ident]
+        position = self._order[ident]
         del self._order[ident]
-        return True
+        return position
 
-    def _start_move(self, event) -> None:
-        if self._del(event):
-            self._move_started = Coord(event.x, event.y)
+    def _start_move(self, event: Event) -> None:
+        self._move_position = self._del(event)
 
-    def _end_move(self, event) -> None:
-        if self._move_started is None:
+    def _end_move(self, event: Event) -> None:
+        if self._move_position is None:
             return
-        self._add(event)
-        self._move_started = None
+        self._add(event, position=self._move_position)
+        self._move_position = None
 
     def to_points(self) -> list[Point]:
         items = list(self._coords.items())
@@ -119,9 +145,6 @@ class Harmonic:
     phase: float
 
 
-FULL_TURN = 2 * math.pi
-
-
 def compress(harmonics: list[Harmonic]) -> list[Harmonic]:
     result: list[Harmonic] = []
     for h in harmonics:
@@ -140,7 +163,7 @@ def to_harmonics(points: list[Point]) -> list[Harmonic]:
         complex_for_average: complex = 0 + 0j
 
         for point_idx in range(n):
-            direction: float = -harmonic_idx * point_idx / n * FULL_TURN
+            direction: float = (-harmonic_idx * point_idx * 2 * math.pi) / n
             complex_for_probe = complex(
                 math.cos(direction),
                 math.sin(direction),
@@ -159,27 +182,11 @@ def to_harmonics(points: list[Point]) -> list[Harmonic]:
                 phase=math.atan2(complex_for_average.imag, complex_for_average.real),
             )
         )
+    for h in result:
+        if h.freq >= len(result) / 2:
+            h.freq -= len(result)
     return result
 
-
-def draw(harmonics: list[Harmonic], num_step: int) -> None:
-    turtle.clear()
-    for step in range(num_step):
-        s = Point(0, 0)
-        for h in harmonics:
-            f = h.freq
-            if f >= len(harmonics) / 2:
-                f -= len(harmonics)
-            phase = step / num_step * FULL_TURN * f + h.phase
-            s.x += h.amp * math.cos(phase)
-            s.y += h.amp * math.sin(phase)
-
-        PX = 200
-        if step == 0:
-            turtle.teleport(PX * s.x, PX * s.y)
-        else:
-            turtle.goto(PX * s.x, PX * s.y)
-    time.sleep(1)
 
 TRIG_MAX_ANGLE = 0x10000
 
@@ -206,8 +213,13 @@ def main() -> None:
 
     points = sketch.to_points()
     harmonics = compress(to_harmonics(points))
-    print(as_c(harmonics))
-    draw(harmonics, 100)
+    header = Path(".") / "src" / "c" / "digits.h"
+    with header.open("w") as f:
+        f.write('#pragma once\n\n')
+        f.write('#include "harmonic.h"\n\n')
+        f.write(as_c(harmonics))
+    subprocess.check_call(["pebble", "build"])
+    subprocess.check_call(["pebble", "install", "--emulator", "emery"])
 
 
 
