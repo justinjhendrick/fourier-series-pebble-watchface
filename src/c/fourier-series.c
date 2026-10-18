@@ -4,25 +4,19 @@
 static Window *s_window;
 static Layer *s_layer;
 
-static void update_layer(Layer* layer, GContext* ctx) {
-  GRect bounds = layer_get_bounds(layer);
-  graphics_context_set_fill_color(ctx, GColorBlack);
-  graphics_fill_rect(ctx, bounds, 0, GCornerNone);
-  graphics_context_set_stroke_color(ctx, GColorWhite);
-  graphics_context_set_stroke_width(ctx, 5);
-
-  int num_step = 60;
-  int num_harmonics = sizeof(B1) / sizeof(Harmonic);
+static void draw_digit(GContext* ctx, GPoint tl, Harmonic* harmonic, int num_harmonics) {
+  if (num_harmonics == 0) return;
+  int num_step = 40;
   GPoint orig;
   GPoint prev;
   GPoint s;
   for (int step = 0; step < num_step; step++) {
-    s = GPoint(bounds.origin.x, bounds.origin.y);
+    s = tl;
     for (int h_idx = 0; h_idx < num_harmonics; h_idx++) {
-      Harmonic* h = B1 + h_idx;
+      Harmonic* h = harmonic + h_idx;
       int phase = step * TRIG_MAX_ANGLE * h->freq / num_step + h->phase;
-      s.x += h->amp * cos_lookup(phase) / (10 * TRIG_MAX_RATIO);
-      s.y += h->amp * sin_lookup(phase) / (10 * TRIG_MAX_RATIO);
+      s.x += h->amp * cos_lookup(phase) / (20 * TRIG_MAX_RATIO);
+      s.y += h->amp * sin_lookup(phase) / (12 * TRIG_MAX_RATIO);
     }
 
     if (step == 0) {
@@ -33,6 +27,41 @@ static void update_layer(Layer* layer, GContext* ctx) {
     prev = s;
   }
   graphics_draw_line(ctx, s, orig);
+}
+
+static void update_layer(Layer* layer, GContext* ctx) {
+  GRect bounds = layer_get_bounds(layer);
+  graphics_context_set_fill_color(ctx, GColorBlack);
+  graphics_fill_rect(ctx, bounds, 0, GCornerNone);
+  graphics_context_set_stroke_color(ctx, GColorWhite);
+  graphics_context_set_stroke_width(ctx, 5);
+  GRect main = grect_inset(bounds, GEdgeInsets(3));
+  int w = main.size.w / 5;
+  int h = main.size.h / 2;
+
+  GPoint tl = main.origin;
+  draw_digit(ctx, tl, B0, sizeof(B0) / sizeof(Harmonic));
+  tl.x += w;
+  draw_digit(ctx, tl, B1, sizeof(B1) / sizeof(Harmonic));
+  tl.x += w;
+  draw_digit(ctx, tl, B2, sizeof(B2) / sizeof(Harmonic));
+  tl.x += w;
+  draw_digit(ctx, tl, B3, sizeof(B3) / sizeof(Harmonic));
+  tl.x += w;
+  draw_digit(ctx, tl, B4, sizeof(B4) / sizeof(Harmonic));
+
+  tl.y += h;
+
+  tl.x = main.origin.x;
+  draw_digit(ctx, tl, B5, sizeof(B5) / sizeof(Harmonic));
+  tl.x += w;
+  draw_digit(ctx, tl, B6, sizeof(B6) / sizeof(Harmonic));
+  tl.x += w;
+  draw_digit(ctx, tl, B7, sizeof(B7) / sizeof(Harmonic));
+  tl.x += w;
+  draw_digit(ctx, tl, B8, sizeof(B8) / sizeof(Harmonic));
+  tl.x += w;
+  draw_digit(ctx, tl, B9, sizeof(B9) / sizeof(Harmonic));
 }
 
 static void tick_handler(struct tm* now, TimeUnits units_changed) {

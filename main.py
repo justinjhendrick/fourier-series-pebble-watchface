@@ -22,12 +22,36 @@ class Coord(BaseModel):  # in pixel space
     x: int    # positive is right
     y: int    # positive is down
 
+
 coord_list_adapter = TypeAdapter(list[Coord])
 
 def dist(c1: Coord, c2: Coord) -> float:
     x = c1.x - c2.x
     y = c1.y - c2.y
     return math.sqrt(x**2 + y**2)
+
+class Polygon:
+    def __init__(self, coords: list[Coord]) -> None:
+        self.coords = coords
+
+    def to_points(self) -> list[Point]:
+        xs = [c.x for c in self.coords]
+        ys = [c.y for c in self.coords]
+        minx = min(xs)
+        maxx = max(xs)
+        miny = min(ys)
+        maxy = max(ys)
+        rx = maxx - minx
+        ry = maxy - miny
+        r = max(rx, ry)
+        return [
+            Point(
+                (c.x - minx) / r,
+                (c.y - miny) / r,
+            )
+            for c in self.coords
+        ]
+
 
 @dataclass
 class Point:  # in arbitrary size float 0.0-1.0 space
@@ -121,36 +145,14 @@ class Sketchpad(Canvas):
         self._add(event, position=self._move_position)
         self._move_position = None
 
-    def to_points(self) -> list[Point]:
-        items = list(self._coords.items())
-        items.sort(key=lambda k: self._order[k[0]])
-        coords = [i[1] for i in items]
-        xs = [c.x for c in coords]
-        ys = [c.y for c in coords]
-        minx = min(xs)
-        maxx = max(xs)
-        miny = min(ys)
-        maxy = max(ys)
-        rx = maxx - minx
-        ry = maxy - miny
-        r = max(rx, ry)
-        return [
-            Point(
-                (c.x - minx) / r,
-                (c.y - miny) / r,
-            )
-            for c in coords
-        ]
-
     def to_json(self) -> str:
         items = list(self._coords.items())
         items.sort(key=lambda k: self._order[k[0]])
         coords = [i[1] for i in items]
         return coord_list_adapter.dump_json(coords).decode()
 
-    def fill_with_json(self, j: str) -> None:
-        coords = coord_list_adapter.validate_json(j)
-        for c in coords:
+    def fill(self, polygon: Polygon) -> None:
+        for c in polygon.coords:
             e = Event()
             e.x = c.x
             e.y = c.y
@@ -167,7 +169,7 @@ class Harmonic:
 def compress(harmonics: list[Harmonic]) -> list[Harmonic]:
     result: list[Harmonic] = []
     for h in harmonics:
-        if h.amp < 0.0001:
+        if h.amp < 0.03:
             continue
         result.append(h)
     print(f"dropped {len(harmonics) - len(result)}")
@@ -221,35 +223,55 @@ def as_c(harmonics: list[Harmonic], name: str) -> str:
     return "\n".join(result) + "\n"
 
 
+CODE = Path(".") / "src" / "c"
+ASSETS = Path(".") / "assets"
+
+def get_asset_path(name: str) -> Path:
+    return (ASSETS / name).with_suffix(".json")
+
+def load_asset(name: str) -> Polygon | None:
+    asset = get_asset_path(name)
+    if asset.is_file():
+        with asset.open() as f:
+            return Polygon(coord_list_adapter.validate_json(f.read()))
+    return None
+
+def save_asset(name: str, j: str) -> None:
+    asset = get_asset_path(name)
+    with asset.open("w") as f:
+        f.write(j)
+
 
 def main() -> None:
-    assert len(sys.argv) == 2
-    name = sys.argv[1]
+    ASSETS.mkdir(exist_ok=True)
 
-    assets = Path(".") / "assets"
-    assets.mkdir(exist_ok=True)
-    cache = (assets / name).with_suffix(".json")
+    if len(sys.argv) >= 2:
+        name = sys.argv[1]
 
-    root = Tk()
-    root.columnconfigure(0, weight=1)
-    root.rowconfigure(0, weight=1)
-    sketch = Sketchpad(root)
-    if cache.is_file():
-        with cache.open() as f:
-            sketch.fill_with_json(f.read())
-    sketch.grid(column=0, row=0, sticky=(N, W, E, S))
-    root.mainloop()
+        root = Tk()
+        root.columnconfigure(0, weight=1)
+        root.rowconfigure(0, weight=1)
+        sketch = Sketchpad(root)
+        polygon = load_asset(name)
+        if polygon is not None:
+            sketch.fill(polygon)
+        sketch.grid(column=0, row=0, sticky=(N, W, E, S))
+        root.mainloop()
+        save_asset(name, sketch.to_json())
 
-    with cache.open("w") as f:
-        f.write(sketch.to_json())
-
-    points = sketch.to_points()
-    harmonics = compress(to_harmonics(points))
-    header = Path(".") / "src" / "c" / "digits.h"
-    with header.open("w") as f:
-        f.write('#pragma once\n\n')
-        f.write('#include "harmonic.h"\n\n')
-        f.write(as_c(harmonics, name))
+    for digit in range(10):
+        name = f"B{digit}"
+        polygon = load_asset(name)
+        if polygon is None:
+            harmonics = []
+        else:
+            points = polygon.to_points()
+            harmonics = compress(to_harmonics(points))
+        header = CODE / f"{name}.h"
+        with header.open("w") as f:
+            f.write('#pragma once\n\n')
+            f.write('#include "harmonic.h"\n\n')
+            f.write(as_c(harmonics, name))
     subprocess.check_call(["pebble", "build"])
     subprocess.check_call(["pebble", "install", "--emulator", "emery"])
 
