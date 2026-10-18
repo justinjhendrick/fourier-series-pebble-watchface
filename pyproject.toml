@@ -1,0 +1,14 @@
+[project]
+name = "fourier-series-pebble-watchface"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic>=2.14.1",
+]
+
+[dependency-groups]
+dev = [
+    "ty>=0.0.89",
+]

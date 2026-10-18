@@ -12,14 +12,14 @@ static void update_layer(Layer* layer, GContext* ctx) {
   graphics_context_set_stroke_width(ctx, 5);
 
   int num_step = 60;
-  int num_harmonics = sizeof(harmonics) / sizeof(Harmonic);
+  int num_harmonics = sizeof(B1) / sizeof(Harmonic);
   GPoint orig;
   GPoint prev;
   GPoint s;
   for (int step = 0; step < num_step; step++) {
     s = GPoint(bounds.origin.x, bounds.origin.y);
     for (int h_idx = 0; h_idx < num_harmonics; h_idx++) {
-      Harmonic* h = harmonics + h_idx;
+      Harmonic* h = B1 + h_idx;
       int phase = step * TRIG_MAX_ANGLE * h->freq / num_step + h->phase;
       s.x += h->amp * cos_lookup(phase) / (10 * TRIG_MAX_RATIO);
       s.y += h->amp * sin_lookup(phase) / (10 * TRIG_MAX_RATIO);

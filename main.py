@@ -1,6 +1,11 @@
+from __future__ import annotations
+
+from pydantic import BaseModel, TypeAdapter
 import math
 import time
 import subprocess
+import sys
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from tkinter import (
@@ -13,10 +18,11 @@ from tkinter import (
     Event,
 )
 
-@dataclass
-class Coord:  # in pixel space
+class Coord(BaseModel):  # in pixel space
     x: int    # positive is right
     y: int    # positive is down
+
+coord_list_adapter = TypeAdapter(list[Coord])
 
 def dist(c1: Coord, c2: Coord) -> float:
     x = c1.x - c2.x
@@ -45,7 +51,7 @@ class Sketchpad(Canvas):
         self.radius = 15
 
     def _add(self, event: Event, position: float | None = None) -> None:
-        c = Coord(event.x, event.y)
+        c = Coord(x=event.x, y=event.y)
         x0 = c.x - self.radius
         x1 = c.x + self.radius
         y0 = c.y - self.radius
@@ -68,7 +74,7 @@ class Sketchpad(Canvas):
         return order[-1] + 1.0
 
     def _start_add_after(self, event: Event) -> None:
-        clicked = Coord(event.x, event.y)
+        clicked = Coord(x=event.x, y=event.y)
         ident = self._find(clicked)
         if ident is None:
             return
@@ -94,7 +100,7 @@ class Sketchpad(Canvas):
         return mini
 
     def _del(self, event: Event) -> None | float:
-        clicked = Coord(event.x, event.y)
+        clicked = Coord(x=event.x, y=event.y)
         ident = self._find(clicked)
         if ident is None:
             return None
@@ -136,6 +142,19 @@ class Sketchpad(Canvas):
             for c in coords
         ]
 
+    def to_json(self) -> str:
+        items = list(self._coords.items())
+        items.sort(key=lambda k: self._order[k[0]])
+        coords = [i[1] for i in items]
+        return coord_list_adapter.dump_json(coords).decode()
+
+    def fill_with_json(self, j: str) -> None:
+        coords = coord_list_adapter.validate_json(j)
+        for c in coords:
+            e = Event()
+            e.x = c.x
+            e.y = c.y
+            self._add(e)
 
 
 @dataclass
@@ -190,26 +209,39 @@ def to_harmonics(points: list[Point]) -> list[Harmonic]:
 
 TRIG_MAX_ANGLE = 0x10000
 
-def as_c(harmonics: list[Harmonic]) -> str:
+def as_c(harmonics: list[Harmonic], name: str) -> str:
     result = []
-    result.append("static Harmonic harmonics[%d] = {" % len(harmonics))
+    result.append("static Harmonic %s[%d] = {" % (name, len(harmonics)))
     for h in harmonics:
         freq = int(h.freq)
         amp = int(h.amp * 1000)
         phase = int(h.phase * TRIG_MAX_ANGLE / (2 * math.pi))
         result.append("    (Harmonic){.freq=%d, .amp=%d, .phase=%d}," % (freq, amp, phase))
     result.append("};")
-    return "\n".join(result)
+    return "\n".join(result) + "\n"
 
 
 
 def main() -> None:
+    assert len(sys.argv) == 2
+    name = sys.argv[1]
+
+    assets = Path(".") / "assets"
+    assets.mkdir(exist_ok=True)
+    cache = (assets / name).with_suffix(".json")
+
     root = Tk()
     root.columnconfigure(0, weight=1)
     root.rowconfigure(0, weight=1)
     sketch = Sketchpad(root)
+    if cache.is_file():
+        with cache.open() as f:
+            sketch.fill_with_json(f.read())
     sketch.grid(column=0, row=0, sticky=(N, W, E, S))
     root.mainloop()
+
+    with cache.open("w") as f:
+        f.write(sketch.to_json())
 
     points = sketch.to_points()
     harmonics = compress(to_harmonics(points))
@@ -217,7 +249,7 @@ def main() -> None:
     with header.open("w") as f:
         f.write('#pragma once\n\n')
         f.write('#include "harmonic.h"\n\n')
-        f.write(as_c(harmonics))
+        f.write(as_c(harmonics, name))
     subprocess.check_call(["pebble", "build"])
     subprocess.check_call(["pebble", "install", "--emulator", "emery"])
 
